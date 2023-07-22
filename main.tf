@@ -1,76 +1,24 @@
-locals {
-  allow_cidrs_default = merge(var.allow_cidrs_default, { self = aws_vpc.main.cidr_block})
-  subnet_list         = [ for cidr_block in cidrsubnets(var.cidr, var.subnet_outer_offsets...) : cidrsubnets(cidr_block, var.subnet_inner_offsets...) ]
+module "vpc" {
+  source                 = "./modules/terraform"
+  cidr                   = var.vpc_cidr
+  name                   = "${var.name}-${var.environment}"
+  nat_per_az             = true
+  separate_db_subnets    = true
+  subnet_outer_offsets   = [3, 3, 3]
+  subnet_inner_offsets   = [3, 3, 3]
+  transit_gateway_attach = false
+  transit_gateway_id     = var.transit_gateway_id
+  allow_cidrs_default    = {}
+  
+
+}
+module "ec2" {
+  source                 = "./modules/terraform"
+  ami =  var.ami
+  instance_type      = "t2.micro"
+  key_pair = "demo-ems"
+  subnet_id = var.subnets
+  associate_public_ip_address = true
+
 }
 
-resource "aws_vpc" "main" {
-  cidr_block           = var.cidr
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-
-  tags = {
-      Name        = "vpc.${var.name}"
-      Environment = var.environment
-    }
-}
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-      Name        = "igw.${var.name}"
-      Environment = var.environment
-    }
-}
-
-resource "aws_eip" "nat" {
-  vpc   = true
-  count = local.nat_count
-
-  tags =  {
-      Name        = "eip.${var.name}"
-      Environment = var.environment
-    }
-}
-
-resource "aws_nat_gateway" "main" {
-  allocation_id = element(aws_eip.nat.*.id, count.index)
-  count         = local.nat_count
-  subnet_id     = element(aws_subnet.public.*.id, count.index)
-
-  tags = {
-      Name        = "natgw.${var.name}"
-      Environment = var.environment
-    }
-}
-
-resource "aws_default_security_group" "main" {
-  vpc_id                 = aws_vpc.main.id
-  revoke_rules_on_delete = true
-
- 
-
-  dynamic "ingress" {
-    for_each = local.ingress_rules
-
-    content {
-      protocol    = "tcp"
-      from_port   = ingress.value.port
-      to_port     = ingress.value.port
-      cidr_blocks = ["0.0.0.0/0"]
-      description = ingress.key
-    }
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "SG"
-
-  }
-}
